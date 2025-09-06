@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "https://esm.sh/@google/genai@^1.11.0";
+import { GoogleGenAI } from "@google/genai";
 
 const SYSTEM_INSTRUCTION = "You are NiallGPT. If anyone asks who made you, who is your creator, or who is Niall, you must answer 'Niall Linus Dias made it he is a pro coder, musician and a creative person. If you want more of his details, ask NiallGPT'. For all other questions, answer helpfully and concisely. Do not use any markdown formatting. All responses must be in plain text.";
 
@@ -15,14 +15,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeChatId = null;
     let isChatLoading = false;
     let isImageLoading = false;
+    let isImageEditing = false;
+    let uploadedImageData = null;
     const CHATS_KEY = 'chats';
     const ACTIVE_CHAT_ID_KEY = 'active-chat-id';
 
     // --- DOM ELEMENTS ---
     const navChatButton = document.getElementById('nav-chat');
     const navImageButton = document.getElementById('nav-image');
+    const navImageEditButton = document.getElementById('nav-image-edit');
     const chatView = document.getElementById('chat-view');
     const imageGeneratorView = document.getElementById('image-generator-view');
+    const imageEditorView = document.getElementById('image-editor-view');
     const apiKeyErrorView = document.getElementById('api-key-error');
 
     // Chat View elements
@@ -39,11 +43,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageDisplay = document.getElementById('image-display');
     const downloadImageButton = document.getElementById('download-image-button');
 
+    // Image Editor View elements
+    const imageUploadInput = document.getElementById('image-upload-input');
+    const imageEditPrompt = document.getElementById('image-edit-prompt');
+    const generateEditButton = document.getElementById('generate-edit-button');
+    const imageEditDisplay = document.getElementById('image-edit-display');
+    const downloadEditButton = document.getElementById('download-edit-button');
+
     // Theme elements
     const themeToggleButton = document.getElementById('theme-toggle');
     const themeIconSun = document.getElementById('theme-icon-sun');
     const themeIconMoon = document.getElementById('theme-icon-moon');
     const themeIconSlate = document.getElementById('theme-icon-slate');
+
+    // --- Modality Enum ---
+    // Define Modality since it's not available in the esm.sh build for dynamic import
+    const Modality = {
+        MODALITY_UNSPECIFIED: 'MODALITY_UNSPECIFIED',
+        TEXT: 'TEXT',
+        IMAGE: 'IMAGE',
+    };
     
     // --- THEME ---
     const THEME_KEY = 'theme-preference';
@@ -89,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(e);
             chatView.style.display = 'none';
             imageGeneratorView.style.display = 'none';
+            imageEditorView.style.display = 'none';
             apiKeyErrorView.style.display = 'flex';
         }
     }
@@ -148,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveChats();
         renderChatList();
         loadActiveChat();
+        switchView('chat');
     }
     
     function loadActiveChat() {
@@ -218,21 +239,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- VIEW SWITCHING ---
     function switchView(view) {
         if (!ai) return; // Don't switch if API is not initialized
+
+        // Hide all views
+        chatView.style.display = 'none';
+        imageGeneratorView.style.display = 'none';
+        imageEditorView.style.display = 'none';
+        
+        // Deactivate all nav buttons
+        navChatButton.classList.remove('active');
+        navImageButton.classList.remove('active');
+        navImageEditButton.classList.remove('active');
+
         if (view === 'chat') {
             chatView.style.display = 'flex';
-            imageGeneratorView.style.display = 'none';
             navChatButton.classList.add('active');
-            navImageButton.classList.remove('active');
-        } else {
-            chatView.style.display = 'none';
+        } else if (view === 'image') {
             imageGeneratorView.style.display = 'flex';
-            navChatButton.classList.remove('active');
             navImageButton.classList.add('active');
+        } else if (view === 'image-edit') {
+            imageEditorView.style.display = 'flex';
+            navImageEditButton.classList.add('active');
         }
     }
 
     navChatButton.addEventListener('click', () => switchView('chat'));
     navImageButton.addEventListener('click', () => switchView('image'));
+    navImageEditButton.addEventListener('click', () => switchView('image-edit'));
     newChatButton.addEventListener('click', createNewChat);
     
     // --- CHAT ---
@@ -370,6 +402,120 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     generateButton.addEventListener('click', handleGenerateImage);
+
+    // --- IMAGE EDITOR ---
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const dataUrl = e.target.result;
+            const [header, base64Data] = dataUrl.split(',');
+            const mimeTypeMatch = header.match(/:(.*?);/);
+            if (!mimeTypeMatch || !mimeTypeMatch[1]) {
+                console.error("Could not determine MIME type from data URL.");
+                imageEditDisplay.innerHTML = '<span>Invalid file type.</span>';
+                return;
+            }
+            const mimeType = mimeTypeMatch[1];
+            
+            uploadedImageData = {
+                base64: base64Data,
+                mimeType: mimeType,
+                url: dataUrl
+            };
+            
+            imageEditDisplay.innerHTML = `<img src="${dataUrl}" alt="Uploaded image">`;
+            imageEditPrompt.disabled = false;
+            downloadEditButton.style.display = 'none';
+            updateGenerateEditButtonState();
+        };
+        reader.onerror = () => {
+            imageEditDisplay.innerHTML = '<span>Failed to load image.</span>';
+            uploadedImageData = null;
+            updateGenerateEditButtonState();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function handleGenerateImageEdit() {
+        const prompt = imageEditPrompt.value.trim();
+        if (!prompt || isImageEditing || !ai || !uploadedImageData) return;
+
+        setImageEditing(true);
+        const originalImageHTML = imageEditDisplay.innerHTML;
+        imageEditDisplay.innerHTML = LOADER_HTML;
+
+        try {
+            const imagePart = {
+              inlineData: {
+                data: uploadedImageData.base64,
+                mimeType: uploadedImageData.mimeType,
+              },
+            };
+            const textPart = { text: prompt };
+
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash-image-preview',
+              contents: { parts: [imagePart, textPart] },
+              config: {
+                  responseModalities: [Modality.IMAGE, Modality.TEXT],
+              },
+            });
+
+            let foundImage = false;
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData) {
+                    const base64ImageBytes = part.inlineData.data;
+                    const newMimeType = part.inlineData.mimeType || 'image/png';
+                    const imageUrl = `data:${newMimeType};base64,${base64ImageBytes}`;
+
+                    imageEditDisplay.innerHTML = `<img src="${imageUrl}" alt="${prompt}">`;
+                    downloadEditButton.href = imageUrl;
+                    downloadEditButton.style.display = 'flex';
+                    foundImage = true;
+                    break;
+                }
+            }
+            if (!foundImage) {
+                throw new Error("API did not return an image.");
+            }
+
+        } catch (error) {
+            console.error("Image edit failed:", error);
+            imageEditDisplay.innerHTML = originalImageHTML;
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-overlay';
+            errorDiv.textContent = 'Failed to edit image. Please try again.';
+            imageEditDisplay.appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 4000);
+        } finally {
+            setImageEditing(false);
+        }
+    }
+
+    function setImageEditing(isLoading) {
+        isImageEditing = isLoading;
+        imageEditPrompt.disabled = isLoading;
+        imageUploadInput.disabled = isLoading;
+        if (isLoading) {
+            generateEditButton.innerHTML = `${LOADER_HTML} Generating...`;
+            generateEditButton.disabled = true;
+        } else {
+            generateEditButton.innerHTML = 'Generate Edit';
+            updateGenerateEditButtonState();
+        }
+    }
+
+    function updateGenerateEditButtonState() {
+        const prompt = imageEditPrompt.value.trim();
+        generateEditButton.disabled = !prompt || !uploadedImageData || isImageEditing;
+    }
+
+    imageUploadInput.addEventListener('change', handleImageUpload);
+    imageEditPrompt.addEventListener('input', updateGenerateEditButtonState);
+    generateEditButton.addEventListener('click', handleGenerateImageEdit);
 
     // --- RUN APP ---
     initializeTheme();

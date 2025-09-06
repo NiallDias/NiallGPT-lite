@@ -1,20 +1,29 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# NiallGPT 1.0
 
-# Run and deploy your AI Studio app
+NiallGPT: A web application with an AI chat and image generator, featuring light and dark themes.
 
-This contains everything you need to run your app locally.
+## Prerequisites
 
-View your app in AI Studio: https://ai.studio/apps/drive/1PUZdsp2D2b4GJWbXxVAWOOvOaa-8FUw5
+- Node.js (v18 or higher recommended)
 
-## Run Locally
+## Setup and Running
 
-**Prerequisites:**  Node.js
+1.  **Install dependencies:**
+    From the root of the project, run:
+    ```bash
+    npm install
+    ```
 
+2.  **Set up your API Key:**
+    Create a file named `.env.local` in the root of the project. Add your Gemini API key to this file:
+    ```
+    API_KEY="YOUR_GEMINI_API_KEY"
+    ```
+    > **Note:** The application is configured to use the `API_KEY` environment variable.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+3.  **Run the development server:**
+    ```bash
+    npm run dev
+    ```
+
+The application will be available at `http://localhost:5173` (or the next available port).
